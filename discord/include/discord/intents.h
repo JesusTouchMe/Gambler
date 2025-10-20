@@ -3,6 +3,8 @@
 #ifndef DISCORD_INTENTS_H
 #define DISCORD_INTENTS_H 1
 
+#include <stdint.h>
+
 #define GUILDS (1 << 0)
 #define GUILD_MEMBERS (1 << 1)
 #define GUILD_MODERATION (1 << 2)
@@ -24,5 +26,7 @@
 #define AUTO_MODERATION_EXECUTION (1 << 21)
 #define GUILD_MESSAGE_POLLS (1 << 24)
 #define DIRECT_MESSAGE_POLLS (1 << 25)
+
+typedef uint64_t intents_t;
 
 #endif // DISCORD_INTENTS_H

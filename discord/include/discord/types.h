@@ -906,6 +906,6 @@ typedef struct Message {
     OPTIONAL(MessageCall) call;
 } Message;
 
-const Message* ParseMessage(Arena* arena, const char* json, jsmntok_t* tokens, JsonObject message);
+int ParseMessage(Message* message, Arena* arena, const char* json, const jsmntok_t* tokens, JsonObject message_obj);
 
 #endif // DISCORD_TYPES_H

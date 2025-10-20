@@ -3,12 +3,14 @@
 #ifndef DISCORD_H
 #define DISCORD_H 1
 
+#include "discord/intents.h"
 #include "discord/types.h"
 
 #include "utils/jsonutils.h"
 
 #include "config.h"
-#include "intents.h"
+
+typedef intents_t (*DiscordGetIntents)(void);
 
 typedef void (*DiscordReadyCallback)(void);
 typedef void (*DiscordMessageCreateCallback)(const Message* message);

@@ -11,7 +11,7 @@ FetchContent_MakeAvailable(jsmn)
 find_package(OpenSSL REQUIRED)
 
 set(SOURCES
-    src/main.c
+    src/bot.c
 )
 
 set(HEADERS
@@ -33,3 +33,5 @@ set_target_properties(bot PROPERTIES
 target_link_libraries(bot discord)
 target_link_libraries(bot OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(bot PRIVATE ${jsmn_SOURCE_DIR})
+
+target_link_options(bot PRIVATE -rdynamic)

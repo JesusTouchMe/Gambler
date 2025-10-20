@@ -169,24 +169,9 @@ static void HandleEvent(const char* json, jsmntok_t* tokens, size_t token_count,
 
         if (g_on_ready != NULL) g_on_ready();
     } else if (jsoneq(json, tokens[t], "MESSAGE_CREATE")) {
-        /*
         const Message* message = ParseMessage(&g_event_arena, json, tokens, d);
         if (message != NULL) {
             if (g_on_message_create) g_on_message_create(message);
-        }
-        */
-
-        JsonObject content = jsmn_find_key(json, tokens, d, "content");
-        if (content != JSON_NULL) {
-            int len = tokens[content].end - tokens[content].start;
-            char* s = ArenaAlloc(&g_event_arena, len + 1);
-            strncpy(s, json + tokens[content].start, len);
-            s[len] = '\0';
-
-            Message* message = ArenaAlloc(&g_event_arena, sizeof(Message));
-            message->content = s;
-
-            if (g_on_message_create != NULL) g_on_message_create(message);
         }
     }
 }

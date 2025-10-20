@@ -9,13 +9,14 @@ set(SOURCES
     src/utils/jsonutils.c
     src/internal/memory.c
         src/discord/types.c
+    src/main.c
 )
 
 set(HEADERS
     include/discord.h
     include/utils/webutils.h
     include/config.h
-    include/intents.h
+    include/discord/intents.h
     include/utils/jsonutils.h
     include/internal/memory.h
     include/discord/types.h
