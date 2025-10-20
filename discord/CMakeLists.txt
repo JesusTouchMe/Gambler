@@ -17,6 +17,7 @@ set(HEADERS
     include/intents.h
     include/utils/jsonutils.h
     include/internal/memory.h
+    include/discord/types.h
 )
 
 source_group(TREE ${PROJECT_SOURCE_DIR} FILES ${SOURCES} ${HEADERS})
