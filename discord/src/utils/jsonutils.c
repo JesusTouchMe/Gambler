@@ -8,8 +8,8 @@ bool jsoneq(const char* json, jsmntok_t tok, const char* s) {
     return tok.type == JSMN_STRING && (int) strlen(s) == tok.end - tok.start && strncmp(json + tok.start, s, tok.end - tok.start) == 0;
 }
 
-JsonObject jsmn_find_key(const char* json, jsmntok_t* tokens, JsonObject object, const char* key) {
-    int i = object + 1;
+JsonObject jsmn_find_key(const char* json, const jsmntok_t* tokens, JsonObject object, const char* key) {
+    JsonObject i = object + 1;
     int count = tokens[object].size;
 
     for (int k = 0; k < count; k++) {
@@ -17,13 +17,15 @@ JsonObject jsmn_find_key(const char* json, jsmntok_t* tokens, JsonObject object,
             return i + 1;
         }
 
-        i += jsmn_skip(&tokens[i + 1]) + 2;
+        JsonObject val = i + 1;
+        int skip = jsmn_subtree_size(tokens, val);
+        i = val + 1 + skip;
     }
 
     return JSON_NULL;
 }
 
-JsonObject jsmn_find_path(const char* json, jsmntok_t* tokens, JsonObject root, const char* path) {
+JsonObject jsmn_find_path(const char* json, const jsmntok_t* tokens, JsonObject root, const char* path) {
     char key[64];
     int current = root;
     const char* p = path;
@@ -46,18 +48,34 @@ JsonObject jsmn_find_path(const char* json, jsmntok_t* tokens, JsonObject root, 
     return current;
 }
 
-int jsmn_skip(const jsmntok_t* token) {
-    if (token->type != JSMN_OBJECT && token->type != JSMN_ARRAY) return 0;
+int jsmn_subtree_size(const jsmntok_t* tokens, JsonObject object) {
+    const jsmntok_t* token = &tokens[object];
+    int total = 0;
 
-    int count = 0;
-    for (int i = 0; i < token->size; i++) {
-        count += 1 + jsmn_skip(token + 1 + count);
+    if (token->type == JSMN_PRIMITIVE || token->type == JSMN_STRING) return 0;
+
+    if (token->type == JSMN_OBJECT) {
+        int i = object + 1;
+        for (int p = 0; p < token->size; p++) {
+            total += 1;
+            int val = i + 1;
+            int sub = jsmn_subtree_size(tokens, val);
+            total += 1 + sub;
+            i = val + 1 + sub;
+        }
+    } else if (token->type == JSMN_ARRAY) {
+        int i = object + 1;
+        for (int p = 0; p < token->size; p++) {
+            int sub = jsmn_subtree_size(tokens, i);
+            total += 1 + sub;
+            i += 1 + sub;
+        }
     }
 
-    return count;
+    return total;
 }
 
-void jsmn_copy_string(const char* json, jsmntok_t* tokens, JsonObject object, char* dest, size_t dest_size) {
+void jsmn_copy_string(const char* json, const jsmntok_t* tokens, JsonObject object, char* dest, size_t dest_size) {
     jsmntok_t* token = &tokens[object];
     int len = token->end - token->start;
     if (len >= dest_size) len = dest_size - 1;

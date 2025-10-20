@@ -8,6 +8,7 @@ set(SOURCES
     src/jsmn.c
     src/utils/jsonutils.c
     src/internal/memory.c
+        src/discord/types.c
 )
 
 set(HEADERS

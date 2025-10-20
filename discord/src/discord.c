@@ -69,13 +69,15 @@ static void ConnectGateway() {
 }
 
 static void ResumeGateway() {
-    if (WS_Connect(&g_ws_client, g_ssl_ctx, GATEWAY_HOST, GATEWAY_PORT, "/?v=10&encoding=json") != 0) {
+    if (WS_Connect(&g_ws_client, g_ssl_ctx, g_gateway_resume_host, g_gateway_resume_port, "/?v=10&encoding=json") != 0) {
         g_running = false;
         return;
     }
 
     char payload[1024];
     snprintf(payload, sizeof(payload), "{\"op\":6,\"d\":{\"token\":\"%s\",\"session_id\":\"%s\",\"seq\":%lld}}", g_token, g_session_id, g_last_seq);
+
+    WS_SendText(&g_ws_client, payload);
 
     g_running = true;
 }
@@ -167,6 +169,13 @@ static void HandleEvent(const char* json, jsmntok_t* tokens, size_t token_count,
 
         if (g_on_ready != NULL) g_on_ready();
     } else if (jsoneq(json, tokens[t], "MESSAGE_CREATE")) {
+        /*
+        const Message* message = ParseMessage(&g_event_arena, json, tokens, d);
+        if (message != NULL) {
+            if (g_on_message_create) g_on_message_create(message);
+        }
+        */
+
         JsonObject content = jsmn_find_key(json, tokens, d, "content");
         if (content != JSON_NULL) {
             int len = tokens[content].end - tokens[content].start;
@@ -174,7 +183,10 @@ static void HandleEvent(const char* json, jsmntok_t* tokens, size_t token_count,
             strncpy(s, json + tokens[content].start, len);
             s[len] = '\0';
 
-            if (g_on_message_create != NULL) g_on_message_create(s);
+            Message* message = ArenaAlloc(&g_event_arena, sizeof(Message));
+            message->content = s;
+
+            if (g_on_message_create != NULL) g_on_message_create(message);
         }
     }
 }
@@ -220,7 +232,9 @@ static void HandleGatewayEvent(const char* json) {
             }
         }
 
-        i += jsmn_skip(&tokens[i + 1]) + 2;
+        int val = i + 1;
+        int skip = jsmn_subtree_size(tokens, val);
+        i = val + 1 + skip;
     }
 
     if (op == 0) {

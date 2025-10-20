@@ -12,7 +12,9 @@ void ReadyHandler(void) {
     fflush(stdout);
 }
 
-void MessageCreateHandler(const char* content) {
+void MessageCreateHandler(const Message* message) {
+    printf("message: %s\n", message->content);
+    fflush(stdout);
 }
 
 int main() {
