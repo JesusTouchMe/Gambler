@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <time.h>
 
+#define BOOLEAN_TO_STRING(b) ((b) ? "true" : "false")
+
 // define types they mention in the docs
 
 typedef _Bool boolean_t;
@@ -54,14 +56,15 @@ typedef struct StringArray {
 // special data types because discord is made in hashmap language
 
 typedef enum OptionalState {
-    OPTION_ABSENT,
-    OPTION_NULL,
-    OPTION_EXISTS,
+    OPTION_ABSENT = 0,
+    OPTION_NULL = 1,
+    OPTION_EXISTS = 2,
 } OptionalState;
 
 #define PAIR(A, B) struct { A first; B second; }
 #define DICTIONARY(K, V) struct { const PAIR(K, V)* entries; size_t size; }
 #define OPTIONAL(T) struct { OptionalState state; T value; }
+#define ASSIGN_OPTIONAL(opt, val) (opt).state = OPTION_EXISTS; (opt).value = (val)
 
 // define the big structures
 

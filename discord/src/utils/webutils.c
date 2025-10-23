@@ -4,21 +4,31 @@
 
 #include "utils/webutils.h"
 
-#include "config.h"
-
 #include <openssl/rand.h>
 
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <poll.h>
 #include <string.h>
 #include <unistd.h>
 
 #define FALLBACK_KEY "aGFtcHVzIGlzIG1lZ2Egbg=="
 
+int SSL_read_all(SSL* ssl, char* buf, int max) {
+    int total = 0;
+    while (total < max) {
+        int r = SSL_read(ssl, buf + total, max - total);
+        if (r <= 0) break;
+        total += r;
+    }
+    return total;
+}
+
 int HTTP_Connect(HTTPClient* client, SSL_CTX* ctx, const char* host, const char* port) {
-    struct addrinfo hints = {0},* res;
+    struct addrinfo hints = {0};
+    struct addrinfo* res;
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
@@ -30,6 +40,7 @@ int HTTP_Connect(HTTPClient* client, SSL_CTX* ctx, const char* host, const char*
 
     int sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if (sock == -1) {
+        freeaddrinfo(res);
         return -1;
     }
 
@@ -85,70 +96,184 @@ void HTTP_Disconnect(HTTPClient* client) {
 }
 
 int HTTP_Reconnect(HTTPClient* client) {
+    char saved = client->authorization[0]; // XXX: this is a fuckass solution to a problem i created myself
+
     HTTP_Disconnect(client);
-    return HTTP_Connect(client, client->ctx, client->host, client->port);
+    int res = HTTP_Connect(client, client->ctx, client->host, client->port);
+
+    if (res == 0) client->authorization[0] = saved;
+
+    return res;
 }
 
 void HTTP_SetAuthorization(HTTPClient* client, const char* authorization) {
     strncpy(client->authorization, authorization, sizeof(client->authorization) - 1);
 }
 
-static HTTPResponse* HTTP_GetResponse(HTTPClient* client, Arena* arena) {
-    size_t buf_size = 8192;
-    size_t total = 0;
-    char* buf = ArenaAlloc(GetTempArena(), buf_size);
+static int ParseStatusCode(const char* header) {
+    const char* s = strstr(header, "HTTP/");
+    if (s == NULL) return 0;
+    s = strchr(s, ' ');
+    if (s == NULL) return 0;
+    return atoi(s + 1);
+}
 
-    char* headers_end = NULL;
-    while (!headers_end) {
-        int r = SSL_read(client->ssl, buf + total, (int)(buf_size - total - 1));
+static size_t ParseContentLength(const char* header) {
+    const char* cl = strcasestr(header, "Content-Length:");
+    if (cl == NULL) return 0;
+    return strtoul(cl + 15, NULL, 10);
+}
+
+static bool IsChunked(const char* header) {
+    const char* te = strcasestr(header, "Transfer-Encoding:");
+    return te != NULL && strcasestr(te, "chunked") != NULL;
+}
+
+static char* HTTP_ReadHeaders(HTTPClient* client) {
+    size_t cap = 4096;
+    size_t length = 0;
+    char* buf = HeapAlloc(cap);
+
+    while (true) {
+        if (length + 1 >= cap) {
+            cap *= 2;
+            buf = HeapRealloc(buf, cap);
+        }
+
+        int r = SSL_read(client->ssl, buf + length, 1);
         if (r <= 0) {
-            free(buf);
-            return NULL;
+            int err = SSL_get_error(client->ssl, r);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) continue;
+            break;
         }
 
-        total += r;
-        buf[total] = 0;
-        headers_end = strstr(buf, "\r\n\r\n");
-        if (!headers_end && total + 1024 > buf_size) {
-            buf_size *= 2;
-            buf = realloc(buf, buf_size);
+        length += r;
+        if (length >= 4 && memcmp(buf + length - 4, "\r\n\r\n", 4) == 0) break;
+    }
+
+    buf[length] = 0;
+    return buf;
+}
+
+static char* HTTP_ReadBody(HTTPClient* client, size_t length) {
+    char* tmp = HeapAlloc(length + 1);
+    size_t received = 0;
+
+    while (received < length) {
+        int r = SSL_read(client->ssl, tmp + received, (int)(length - received));
+        if (r <= 0) {
+            int err = SSL_get_error(client->ssl, r);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) continue;
+            break;
+        }
+        received += r;
+    }
+
+    tmp[received] = 0;
+    return tmp;
+}
+
+static char* HTTP_ReadChunkedBody(HTTPClient* client) {
+    size_t total = 0;
+    size_t cap = 4096;
+    char* data = HeapAlloc(cap);
+
+    while (true) {
+        char line[64];
+        size_t i = 0;
+
+        while (i < sizeof(line) - 1) {
+            int r = SSL_read(client->ssl, &line[i], 1);
+            if (r <= 0) {
+                int err = SSL_get_error(client->ssl, r);
+                if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+                    continue;
+                goto outtahere;
+            }
+            if (i >= 1 && line[i - 1] == '\r' && line[i] == '\n') break;
+            i++;
+        }
+
+        line[i + 1] = '\0';
+        size_t chunk_size = strtoul(line, NULL, 16);
+        if (chunk_size == 0) break;
+
+        if (total + chunk_size >= cap) {
+            cap = (total + chunk_size) * 2;
+            data = HeapRealloc(data, cap);
+        }
+
+        size_t read_bytes = 0;
+        while (read_bytes < chunk_size) {
+            int r = SSL_read(client->ssl, data + total + read_bytes,
+                             (int)(chunk_size - read_bytes));
+            if (r <= 0) {
+                int err = SSL_get_error(client->ssl, r);
+                if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+                    continue;
+                goto outtahere;
+            }
+            read_bytes += r;
+        }
+        total += read_bytes;
+
+        char skip[2];
+        size_t skip_read = 0;
+        while (skip_read < 2) {
+            int r = SSL_read(client->ssl, skip + skip_read, 2 - skip_read);
+            if (r <= 0) {
+                int err = SSL_get_error(client->ssl, r);
+                if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+                    continue;
+                goto outtahere;
+            }
+            skip_read += r;
         }
     }
 
-    size_t header_len = (headers_end - buf) + 4;
+outtahere:
+    data[total] = '\0';
+    return data;
+}
 
-    int status = -1;
-    sscanf(buf, "HTTP/1.%*c %d", &status);
 
-    size_t content_length = 0;
-    char* cl = strcasestr(buf, "Content-Length:");
-    if (cl != NULL) content_length = atoi(cl + 15);
+static HTTPResponse* HTTP_GetResponse(HTTPClient* client, Arena* arena) {
+    if (!client->connected && HTTP_Reconnect(client) != 0) return NULL;
 
-    char* body = ArenaAlloc(arena, content_length + 1);
-    size_t body_read = total - header_len;
-    if (body_read > content_length) body_read = content_length;
-    memcpy(body, buf + header_len, body_read);
+    char* header = HTTP_ReadHeaders(client);
+    //if (header == NULL) return NULL;
 
-    while (body_read < content_length) {
-        int r = SSL_read(client->ssl, body + body_read, (int)(content_length - body_read));
-        if (r <= 0) break;
-        body_read += r;
+    int code = ParseStatusCode(header);
+    char* tmp_body = NULL;
+
+    if (IsChunked(header)) {
+        tmp_body = HTTP_ReadChunkedBody(client);
+    } else {
+        size_t length = ParseContentLength(header);
+        tmp_body = HTTP_ReadBody(client, length);
     }
 
-    body[body_read] = 0;
+    if (tmp_body == NULL) {
+        HeapFree(header);
+        return NULL;
+    }
 
     HTTPResponse* res = ArenaAlloc(arena, sizeof(HTTPResponse));
-    res->code = status;
-    res->body = body;
+    res->code = code;
+    size_t body_length = strlen(tmp_body);
+    res->body = ArenaAlloc(arena, body_length + 1);
+    memcpy(res->body, tmp_body, body_length + 1);
+
+    HeapFree(header);
+    HeapFree(tmp_body);
+
     return res;
 }
 
 HTTPResponse* HTTP_Request(HTTPClient* client, Arena* arena, const char* method, const char* path, const char* body) {
-    if (!client->connected && HTTP_Reconnect(client) != 0) return NULL;
-
     char auth[300] = "";
     if (client->authorization[0] != '\0') {
-        snprintf(auth, sizeof(auth), "Authorization: Bot %s\r\n", client->authorization);
+        snprintf(auth, sizeof(auth), "Authorization: %s\r\n", client->authorization);
     }
 
     size_t body_len = body ? strlen(body) : 0;
@@ -172,9 +297,33 @@ HTTPResponse* HTTP_Request(HTTPClient* client, Arena* arena, const char* method,
         "%s",
         method, path, client->host, auth, body_len, body != NULL ? body : "");
 
-    if (SSL_write(client->ssl, req, len) != len) {
-        if (HTTP_Reconnect(client) == 0)
-            return HTTP_Request(client, arena, method, path, body);
+    const int max_retries = 2;
+    int attempt = 0;
+    retry:
+
+    if (!client->connected) {
+        if (HTTP_Reconnect(client) != 0) return NULL;
+    }
+
+    int fd = SSL_get_fd(client->ssl);
+    struct pollfd pfd = { .fd = fd, .events = POLLIN };
+    if (poll(&pfd, 1, 0) > 0) {
+        char tmp;
+        if (recv(fd, &tmp, 1, MSG_PEEK | MSG_DONTWAIT) == 0) {
+            client->connected = false;
+            if (++attempt >= max_retries) return NULL;
+            goto retry;
+        }
+    }
+
+    int ret = SSL_write(client->ssl, req, len);
+    if (ret != len) {
+        int err = SSL_get_error(client->ssl, ret);
+        if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL || err == SSL_ERROR_ZERO_RETURN) {
+            client->connected = false;
+            if (++attempt >= max_retries) return NULL;
+            goto retry;
+        }
         return NULL;
     }
 

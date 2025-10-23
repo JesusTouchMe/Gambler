@@ -3,26 +3,30 @@
 #ifndef DISCORD_H
 #define DISCORD_H 1
 
+#include "discord/api.h"
+#include "discord/events.h"
+#include "discord/function_types.h"
 #include "discord/intents.h"
+#include "discord/message.h"
 #include "discord/types.h"
 
 #include "utils/jsonutils.h"
 
-#include "config.h"
-
-typedef intents_t (*DiscordGetIntents)(void);
-
-typedef void (*DiscordReadyCallback)(void);
-typedef void (*DiscordMessageCreateCallback)(const Message* message);
-
 void Discord_LibInit(void);
+void Discord_LibShutdown(void);
 
 void Discord_SetToken(const char* token);
-void Discord_AddIntent(long long intent);
-void Discord_RemoveIntent(long long intent);
+void Discord_SetIntents(intents_t intents);
+void Discord_AddIntent(intents_t intent);
+void Discord_RemoveIntent(intents_t intent);
 
-void Discord_OnReady(DiscordReadyCallback callback);
-void Discord_OnMessageCreate(DiscordMessageCreateCallback callback); // TODO: message struct
+OnReadyFn Discord_OnReady(void);
+OnMessageCreateFn Discord_OnmessageCreate(void);
+
+void Discord_SetOnReady(OnReadyFn callback);
+void Discord_SetOnMessageCreate(OnMessageCreateFn callback); // TODO: message struct
+
+Arena* Discord_GetEventArena(void);
 
 void Discord_Run(void);
 

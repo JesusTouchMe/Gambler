@@ -4,27 +4,40 @@
 
 #include <stdlib.h>
 
-static int ParseBoolean(boolean_t* b, const char* json, const jsmntok_t* tokens, JsonObject object, const char* key) {
+static int ParseInteger(integer_t* i, const char* json, const jsmntok_t* tokens, JsonObject object, const char* key) {
+    JsonObject obj = jsmn_find_key(json, tokens, object, key);
+    if (obj == JSON_NULL) return 1;
+    char c = json[tokens[obj].start];
+    if (tokens[obj].type != JSMN_PRIMITIVE && (c < '0' || c > '9')) return 1;
+    *i = strtoull(json + tokens[obj].start, NULL, 10);
+    return 0;
+}
 
+static int ParseSnowflake(snowflake_t* i, const char* json, const jsmntok_t* tokens, JsonObject object, const char* key) {
+    JsonObject obj = jsmn_find_key(json, tokens, object, key);
+    if (obj == JSON_NULL) return 1;
+    if (tokens[obj].type != JSMN_STRING) return 1;
+    *i = strtoull(json + tokens[obj].start, NULL, 10);
+    return 0;
+}
+
+static int ParseString(string_t* s, const char* json, const jsmntok_t* tokens, JsonObject object, const char* key, Arena* arena) {
+    JsonObject obj = jsmn_find_key(json, tokens, object, key);
+    if (obj == JSON_NULL) return 1;
+    if (tokens[obj].type != JSMN_STRING) return 1;
+    int len = tokens[obj].end - tokens[obj].start + 1;
+    char* str = ArenaAlloc(arena, len);
+    jsmn_copy_string(json, tokens, obj, str, len);
+    *s = str;
+    return 0;
 }
 
 int ParseMessage(Message* message, Arena* arena, const char* json, const jsmntok_t* tokens, JsonObject message_obj) {
     if (message_obj == JSON_NULL || tokens[message_obj].type != JSMN_OBJECT) return 1;
 
-    JsonObject id = jsmn_find_key(json, tokens, message_obj, "id");
-    if (id == JSON_NULL) return 1;
-    message->id = strtoull(json + tokens[id].start, NULL, 10);
-
-    JsonObject channel_id = jsmn_find_key(json, tokens, message_obj, "channel_id");
-    if (channel_id == JSON_NULL) return 1;
-    message->channel_id = strtoull(json + tokens[channel_id].start, NULL, 10);
-
-    JsonObject content = jsmn_find_key(json, tokens, message_obj, "content");
-    if (content == JSON_NULL) return 1;
-    int content_len = tokens[content].end - tokens[content].start + 1;
-    char* content_str = ArenaAlloc(arena, content_len);
-    jsmn_copy_string(json, tokens, content, content_str, content_len);
-    message->content = content_str;
+    if (ParseSnowflake(&message->id, json, tokens, message_obj, "id") != 0) return 1;
+    if (ParseSnowflake(&message->channel_id, json, tokens, message_obj, "channel_id") != 0) return 1;
+    if (ParseString(&message->content, json, tokens, message_obj, "content", arena) != 0) return 1;
 
     return 0;
 }

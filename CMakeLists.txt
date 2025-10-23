@@ -4,3 +4,4 @@ project(Gambler)
 
 add_subdirectory(bot)
 add_subdirectory(discord)
+add_subdirectory(launchwrapper)

@@ -14,7 +14,7 @@ struct _Arena {
     char data[];
 };
 
-static Arena g_temp_arena = NULL;
+static _Thread_local Arena g_temp_arena = NULL;
 
 Arena ArenaCreate(size_t initial_size) {
     if (initial_size == 0) initial_size = ARENA_DEFAULT_CHUNK_SIZE;

@@ -9,17 +9,25 @@ set(SOURCES
     src/utils/jsonutils.c
     src/internal/memory.c
         src/discord/types.c
-    src/main.c
+        ../launchwrapper/src/main.c
+        src/discord/message.c
+        src/discord/api.c
+        src/utils/time.c
+        src/discord/events.c
 )
 
 set(HEADERS
     include/discord.h
     include/utils/webutils.h
-    include/config.h
-    include/discord/intents.h
+        include/discord/intents.h
     include/utils/jsonutils.h
     include/internal/memory.h
     include/discord/types.h
+        include/discord/message.h
+        include/discord/api.h
+        include/discord/function_types.h
+        include/utils/time.h
+        include/discord/events.h
 )
 
 source_group(TREE ${PROJECT_SOURCE_DIR} FILES ${SOURCES} ${HEADERS})

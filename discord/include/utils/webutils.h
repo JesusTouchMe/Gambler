@@ -48,6 +48,8 @@ typedef struct WSClient {
     int last_close_code;
 } WSClient;
 
+int SSL_read_all(SSL* ssl, char* buf, int max);
+
 int HTTP_Connect(HTTPClient* client, SSL_CTX* ctx, const char* host, const char* port);
 void HTTP_Disconnect(HTTPClient* client);
 
